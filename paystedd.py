@@ -13,6 +13,8 @@ import sqlalchemy as sa
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
+app = bottle.default_app()
+
 # DB Stuff
 DBURL = 'postgresql+psycopg2://paystedduser:paysteddpass@localhost/paystedd'
 ENGINE = sa.create_engine(DBURL)
@@ -29,15 +31,15 @@ Session = sessionmaker(bind=ENGINE)
 
 # HTML
 BASE_PAGE = '''<!DOCTYPE html><html><head>
-<title>PAYSTEDD</title><style>{0}</style></head>
+<title>PAYSTEDD</title><style>{{style}}</style></head>
 <body><div>
-  <a href="/">new</a>
-  <a href="/recent">recent</a>
-</div>{1}</body></html>'''
-INPUT_FORM = '''<form method="POST" action="/new">
+  <a href="{{app.get_url('/')}}">new</a>
+  <a href="{{app.get_url('/recent')}}">recent</a>
+</div>{{!body}}</body></html>'''
+INPUT_FORM = '''<form method="POST" action="{{app.get_url('/new')}}">
 <div><textarea name="payload" rows="24" cols="80"></textarea></div>
 <div>Highlight Type: <select name="lexer">
-  <option value="">Auto</option>{0}
+  <option value="">Auto</option>{{!options}}
 </select></div>
 <div><input type="submit" value="Create" /></div>
 </form>'''
@@ -55,7 +57,7 @@ def do_main():
     options = ['<option name="{0}">{0}</option>'.format(cgi.escape(l[0], True))
             for l in sorted(get_all_lexers(), key=lambda x: x[0])]
     options_text = ''.join(options)
-    return BASE_PAGE.format('', INPUT_FORM.format(options_text))
+    return bottle.template(BASE_PAGE, app=app, style='', body=bottle.template(INPUT_FORM, app=app, options=options_text))
 
 @bottle.route('/new', method='POST')
 def do_new():
@@ -64,7 +66,10 @@ def do_new():
     slug = ''.join([random.choice(string.letters + string.digits)
         for x in range(8)])
     if which_lexer == u'':
-        lexer = guess_lexer(payload)
+        try:
+            lexer = guess_lexer(payload)
+        except pygments.util.ClassNotFound:
+            lexer = get_lexer_by_name('Text only')
     else:
         lexer = get_lexer_by_name(which_lexer)
     session = Session()
@@ -76,7 +81,7 @@ def do_new():
         session.commit()
     finally:
         session.close()
-    bottle.redirect('/' + slug)
+    bottle.redirect(app.get_url('/') + slug)
 
 @bottle.route('/recent')
 def get_recent():
@@ -84,9 +89,9 @@ def get_recent():
     try:
         recent = session.query(Paste).order_by(sa.desc(Paste.created)).slice(0, 20)
         recent_html = '<ul>{0}</ul>'.format(
-                ''.join(['<li><a href="/{0}">{0}</a></li>'.format(
-                    cgi.escape(p.slug, True)) for p in recent]))
-        return BASE_PAGE.format('', recent_html)
+                ''.join(['<li><a href="{1}{0}">{0}</a> <a href="{1}raw/{0}">raw</a></li>'.format(
+                    cgi.escape(p.slug, True),app.get_url('/')) for p in recent]))
+        return bottle.template(BASE_PAGE, app=app, style='', body=recent_html)
     finally:
         session.close()
 
@@ -97,12 +102,25 @@ def show_paste(slug):
         paste = session.query(Paste).filter_by(slug=slug).first()
         if paste is None:
             bottle.response.status = 404
-            return BASE_PAGE.format('', 'Paste Not Found')
+            return bottle.template(BASE_PAGE, app=app, style='', body='Paste Not Found')
         else:
             lexer = get_lexer_by_name(str(paste.highlight_type))
             code = pygments.highlight(paste.payload, lexer, FORMATTER)
-            return BASE_PAGE.format(FORMATTER.get_style_defs('.highlight'),
-                    code + "<div>Highlight Type: {0}</div>".format(cgi.escape(paste.highlight_type)))
+            return bottle.template(BASE_PAGE, app=app, style=FORMATTER.get_style_defs('.highlight'),
+                    body= code + "<a href='{1}'>raw</a><div>Highlight Type: {0}</div>".format(cgi.escape(paste.highlight_type), app.get_url('/')+'raw/'+slug))
+    finally:
+        session.close()
+
+@bottle.route('/raw/:slug')
+def show_raw_paste(slug):
+    session = Session()
+    try:
+        paste = session.query(Paste).filter_by(slug=slug).first()
+        if paste is None:
+            bottle.response.status = 404
+            return bottle.template(BASE_PAGE, app=app, style='', body='Paste Not Found')
+        else:
+            return paste.payload
     finally:
         session.close()
 

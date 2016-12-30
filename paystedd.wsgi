@@ -8,9 +8,7 @@ here = os.path.dirname(__file__)
 os.chdir(here)
 sys.path.append(here)
 
-import bottle
-
 import paystedd
 
-application = bottle.default_app()
+application = paystedd.app
 
