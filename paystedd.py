@@ -16,7 +16,7 @@ from sqlalchemy.orm import sessionmaker
 app = bottle.default_app()
 
 # DB Stuff
-DBURL = 'postgresql+psycopg2://paystedduser:paysteddpass@localhost/paystedd'
+DBURL = 'mysql+mysqldb://paystedd:pay57edd@localhost/paystedd'
 ENGINE = sa.create_engine(DBURL)
 Base = declarative_base()
 class Paste(Base):
